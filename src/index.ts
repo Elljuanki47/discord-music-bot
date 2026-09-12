@@ -22,6 +22,11 @@ import {
 } from './music.js';
 import type { Track } from './music.js';
 import { loadYouTubeLink } from './youtube.js';
+import {
+    setupNowPlaying,
+    watchNowPlaying,
+    isNowPlayingMessage,
+} from './now-playing.js';
 
 
 const queues = new Map<string, Track[]>();
@@ -67,6 +72,8 @@ client.once(Events.ClientReady, (readyClient) => {
     console.log(`✅ Conectado como ${readyClient.user.tag}`);
 });
 
+setupNowPlaying(client);
+
 client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isButton()) {
         const validIds = ['music:pause', 'music:stop', 'music:skip'];
@@ -85,6 +92,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (!guildId || !guild) {
                 await interaction.editReply(
                     "Estos controles solo funcionan en un servidor.",
+                );
+                return;
+            }
+
+            // Comrprobamos que el boton pertenezca al mensaje actual.
+            if (!isNowPlayingMessage(guildId, interaction.message.id)) {
+                await interaction.editReply(
+                    'Usa los controles del mensaje mas reciente de Ahora suena',
                 );
                 return;
             }
@@ -327,6 +342,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             startPlayback(guildId, queue, connection);
 
+            if (interaction.channelId) {
+                watchNowPlaying(guildId, interaction.channelId);
+            }
+
             await interaction.editReply({
                 content: [
                     `➕ Agrege ${result.tracks.length} canciones al final de la cola.`,
@@ -339,7 +358,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     'Usa /queue para ver el orden o /shuffle para mezclar las pendientes.',
                     '🎛️ Los botones controlan la reproduccion actual del servidor.',
                 ].filter(Boolean).join('\n'),
-                components: [createMusicControls()],
+                components: [],
                 allowedMentions: { parse: []},
             });
 
@@ -470,22 +489,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             const queue = queues.get(guildId) ?? [];
 
-            queue.push({
+            const track: Track = {
                 query: selected.title,
                 url: selected.url,
                 requestedBy: interaction.user.username,
-            });
+            };
+
+            if (Number.isFinite(selected.seconds) && selected.seconds > 0) {
+                track.durationSeconds = selected.seconds;
+            }
+
+            queue.push(track);
 
             queues.set(guildId, queue);
             
             startPlayback(guildId, queue, connection);
+
+            if (interaction.channelId) {
+                watchNowPlaying(guildId, interaction.channelId);
+            }
 
             await interaction.editReply({
                 content:
                     `➕ Agregado a la cola: ${selected.title}\n` +
                     `${selected.url}\nPosición: **${queue.length}**\n\n` +
                     '🎛️ Estos controles actúan sobre la reproducción actual del servidor.',
-                components: [createMusicControls()],
+                components: [],
                 allowedMentions: { parse: []},
             });
 

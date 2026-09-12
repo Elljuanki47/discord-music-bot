@@ -123,11 +123,21 @@ export async function loadYouTubeLink(
             continue;
         }
 
-        tracks.push({
+        const track: Track = {
             query: title,
-            url: `https://www.youtube.com/watch?v=${id}`,
+            url: 'https://www.youtube.com/watch?v=' + id,
             requestedBy,
-        });
+        };
+
+        if (
+            typeof entry.duration === 'number' &&
+            Number.isFinite(entry.duration) &&
+            entry.duration > 0
+        ) {
+            track.durationSeconds = entry.duration;
+        }
+
+        tracks.push(track);
     }
 
     return {

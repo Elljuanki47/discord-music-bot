@@ -11,14 +11,17 @@ import type {
     AudioPlayer,
     VoiceConnection,
 } from '@discordjs/voice';
+import { EventEmitter } from 'node:events';
 
 export type Track = {
     query: string;
     url: string;
     requestedBy: string;
+    durationSeconds?: number;
 };
 
 type Session = {
+    guildId: string,
     player: AudioPlayer;
     queue: Track[];
     active: boolean;
@@ -27,6 +30,14 @@ type Session = {
 };
 
 const sessions = new Map<string, Session>();
+
+export const playbackEvents = new EventEmitter();
+
+function notifyPlaybackChange(guildId: string): void {
+    queueMicrotask(() => {
+        playbackEvents.emit('change', guildId);
+    });
+} 
 
 export function startPlayback(
     guildId: string,
@@ -43,6 +54,7 @@ export function startPlayback(
         });
 
         session = {
+            guildId,
             player,
             queue,
             active: false,
@@ -51,6 +63,9 @@ export function startPlayback(
         };
 
         sessions.set(guildId, session);
+        player.on('stateChange', () => {
+            notifyPlaybackChange(guildId);
+        });
 
         const createdSession = session;
 
@@ -67,6 +82,8 @@ export function startPlayback(
     if (!session.active) {
         playNext(session);
     }
+
+    notifyPlaybackChange(guildId);
 }
 
 function playNext(session: Session): void {
@@ -78,6 +95,8 @@ function playNext(session: Session): void {
     const track: Track = firstTrack;
 
     session.active = true;
+
+    notifyPlaybackChange(session.guildId);
 
     // Los argumentos se pasan por separado, sin usar una shell
     const downloader = spawn(
@@ -168,6 +187,8 @@ function playNext(session: Session): void {
             session.queue.shift();
         }
 
+        notifyPlaybackChange(session.guildId);
+
         // Dejamos pasar los eventos pendientes antes de iniciar otra
         setImmediate(() => {
             session.player.off('error', onPlayerError);
@@ -250,6 +271,8 @@ export function stopPlayback(guildId: string): void {
     session.queue.length = 0;
 
     sessions.delete(guildId);
+
+    notifyPlaybackChange(session.guildId);
 }
 
 export function togglePause(guildId: string): string {
@@ -288,6 +311,24 @@ export function skipTrack(guildId: string): boolean {
     return session.player.stop(true);
 }
 
+function getElapsedSeconds(session: Session): number {
+    const state = session.player.state;
+
+    if (state.status === AudioPlayerStatus.Idle) {
+        return 0;
+    }
+
+    // Cada paquete de audio representa 20 milisegundos
+    const seconds = state.resource.playbackDuration / 1000;
+    const duration = session.queue[0]?.durationSeconds;
+
+    if (duration !== undefined) {
+        return Math.min(seconds, duration);
+    }
+
+    return seconds;
+}
+
 export function getQueueSnapshot(guildId: string) {
     const session = sessions.get(guildId);
 
@@ -296,6 +337,7 @@ export function getQueueSnapshot(guildId: string) {
             current: undefined as Track | undefined,
             pending: [] as Track[],
             status: 'Sin reproduccion',
+            elapsedSeconds: 0,
         };
     }
 
@@ -313,7 +355,12 @@ export function getQueueSnapshot(guildId: string) {
         status = 'En pausa';
     }
 
-    return { current, pending, status };
+    return { 
+        current, 
+        pending, 
+        status,
+        elapsedSeconds: getElapsedSeconds(session),
+    };
 }
 
 export function shuffleQueue(guildId: string): number {
@@ -339,6 +386,8 @@ export function shuffleQueue(guildId: string): number {
         session.queue[i] = second;
         session.queue[j] = first;
     }
+
+    notifyPlaybackChange(session.guildId);
 
     return count;
 }
