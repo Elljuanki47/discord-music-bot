@@ -13,14 +13,21 @@
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
     "discord.js": "^14.27.0",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "yt-search": "^2.13.1"
   },
   "devDependencies": {
     "@types/node": "^26.5.0",
+    "@types/yt-search": "^2.10.3",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   },
   "allowScripts": {
     "esbuild@0.28.2": true
+  },
+  "overrides": {
+    "redstar": {
+      "minimatch": "3.1.4"
+    }
   }
 }

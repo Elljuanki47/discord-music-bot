@@ -9,7 +9,7 @@ type Track = {
 
 const queues = new Map<string, Track[]>();
 
-const token = process.env.DICORD_TOKEN;
+const token = process.env.DISCORD_TOKEN;
 
 if (!token) {
     throw new Error('Falta DISCORD_TOKEN en el archivo .env');

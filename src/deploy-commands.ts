@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import {REST, Routes, SlashCommandBuilder} from 'discord.js';
 
-const token = process.env.DICORD_TOKEN;
+const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
 
