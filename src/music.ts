@@ -287,3 +287,58 @@ export function skipTrack(guildId: string): boolean {
     // quita la cancion actual y arranca la siguiente
     return session.player.stop(true);
 }
+
+export function getQueueSnapshot(guildId: string) {
+    const session = sessions.get(guildId);
+
+    if (!session || session.disposed) {
+        return {
+            current: undefined as Track | undefined,
+            pending: [] as Track[],
+            status: 'Sin reproduccion',
+        };
+    }
+
+    const current = session.active ? session.queue[0] : undefined;
+    const pending = session.queue.slice(current ? 1 : 0);
+
+    let status = 'Cargando';
+
+    if (session.player.state.status === AudioPlayerStatus.Playing) {
+        status = 'Reproduciendo';
+    } else if (
+        session.player.state.status === AudioPlayerStatus.Paused ||
+        session.player.state.status === AudioPlayerStatus.AutoPaused
+    ) {
+        status = 'En pausa';
+    }
+
+    return { current, pending, status };
+}
+
+export function shuffleQueue(guildId: string): number {
+    const session = sessions.get(guildId);
+
+    if (!session || session.disposed) return 0;
+
+    // Si hay una cancion activa, dejamos intacta la posicion 0
+    const start = session.active ? 1 : 0;
+    const count = session.queue.length - start;
+
+    if (count < 2) return count;
+
+    // Mezclamos el mismo array que usa el reproductor
+    for (let i = session.queue.length - 1; i > start ; i--) {
+        const j = start + Math.floor(Math.random() * (i - start + 1));
+
+        const first = session.queue[i];
+        const second = session.queue[j];
+
+        if (!first || !second) continue;
+
+        session.queue[i] = second;
+        session.queue[j] = first;
+    }
+
+    return count;
+}

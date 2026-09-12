@@ -33,8 +33,18 @@ const commands = [
         ),
 
     new SlashCommandBuilder()
-        .setName('queue')
-        .setDescription('Muestra la cola de canciones'),
+    .setName('queue')
+    .setDescription('Muestra la canción actual y las canciones pendientes')
+    .addIntegerOption((option) =>
+        option
+            .setName('pagina')
+            .setDescription('Página de canciones pendientes')
+            .setMinValue(1),
+    ),
+
+    new SlashCommandBuilder()
+        .setName('shuffle')
+        .setDescription('Mezcla las canciones pendientes sin interrumpir la actual'),
         
 ].map((command) => command.toJSON());
 

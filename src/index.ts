@@ -9,6 +9,7 @@ import {
     Events,
     GatewayIntentBits,
     MessageFlags,
+    escapeMarkdown,
 } from 'discord.js';
 import { entersState, getVoiceConnection, joinVoiceChannel, VoiceConnectionStatus, } from '@discordjs/voice';
 import {
@@ -16,6 +17,8 @@ import {
     stopPlayback,
     togglePause,
     skipTrack,
+    getQueueSnapshot,
+    shuffleQueue,
 } from './music.js';
 import type { Track } from './music.js';
 
@@ -397,18 +400,114 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (interaction.commandName === 'queue') {
         const guildId = interaction.guildId;
-        const queue = guildId ? queues.get(guildId) : undefined;
-
-        if (!queue || queue.length === 0) {
-            await interaction.reply('La cola de canciones está vacía.');
+        
+        if (!guildId) {
+            await interaction.reply('Este comando solo funciona en un servidor.');
             return;
         }
 
-        const list = queue
-            .map((track, index) => `${index + 1}. ${track.query} — pedido por ${track.requestedBy}`)
+        const { current, pending, status } = getQueueSnapshot(guildId);
+
+        if (!current && pending.length === 0) {
+            await interaction.reply('La cola esta vacia.');
+            return;
+        }
+
+        const page = interaction.options.getInteger('pagina') ?? 1;
+        const pageSize = 10;
+        const totalPages = Math.max(1, Math.ceil(pending.length / pageSize));
+
+        if (page < 1 || page > totalPages) {
+            await interaction.reply({
+                content: `Elegi una pagina entre 1 y ${totalPages}.`,
+                flags: MessageFlags.Ephemeral,
+            });
+            return;
+        }
+
+        // Acortamos y escapamos titulos para respetar el limite del mensaje
+        const title = (track: Track): string =>
+            escapeMarkdown(
+                track.query.replace(/[\r\n]/g, ' ').slice(0, 60),
+            );
+
+        const offset = (page - 1) * pageSize;
+        const visible = pending.slice(offset, offset + pageSize);
+        const next = pending[0];
+
+        const list = visible
+            .map((track, index) => `${offset + index + 1}. ${title(track)}`)
             .join('\n');
 
-        await interaction.reply(`🎶 **Cola actual:**\n${list}`);
+            await interaction.reply({
+                content: [
+                    current
+                        ? `🎶 **${status}:** ${title(current)}`
+                        : '🎶 No hay una canción activa.',
+                    next
+                        ? `⏭️ **Siguiente:** ${title(next)}`
+                        : '⏭️ No hay más canciones pendientes.',
+                    '',
+                    `📋 **Pendientes: ${pending.length}**`,
+                    list || 'No hay canciones en espera.',
+                    '',
+                    `Pagina ${page}/${totalPages} · Usa /queue pagina:N para cambiar.`,
+                ].join('\n'),
+                allowedMentions: { parse: [] },
+        });
+
+        return;
+    }
+
+    if (interaction.commandName === 'shuffle') {
+        await interaction.deferReply();
+
+        try {
+            const guildId = interaction.guildId;
+            const guild = interaction.guild;
+
+            if (!guildId || !guild) {
+                await interaction.editReply(
+                    'Este comando solo funciona en un servidor.',
+                );
+                return;
+            }
+
+            const member = await guild.members.fetch(interaction.user.id);
+            const connection = getVoiceConnection(guildId);
+
+            if (
+                !connection ||
+                !member.voice.channelId ||
+                member.voice.channelId !== connection.joinConfig.channelId
+            ) {
+                await interaction.editReply(
+                    'Entra al mismo canal de voz que el bot para mezclar la queue.',
+                );
+                return;
+            }
+
+            const count = shuffleQueue(guildId);
+
+            if (count < 2) {
+                await interaction.editReply(
+                    'Necesito al menos dos canciones pendientes para mezclarlas,',
+                );
+                return;
+            }
+
+            await interaction.editReply(
+                `🔀 Mezclé las ${count} canciones pendientes. ` +
+                'La canción actual sigue igual. Usá /queue para ver el orden.',
+            );
+        } catch (error) {
+            console.error('Erroe en /shuffle:', error);
+
+            await interaction.editReply(
+                '❌ No pude mezclar la cola. Revisá la terminal.',
+            ).catch(console.error);
+        }
+        return;
     }
 });
 
