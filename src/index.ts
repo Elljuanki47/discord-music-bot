@@ -21,6 +21,7 @@ import {
     shuffleQueue,
 } from './music.js';
 import type { Track } from './music.js';
+import { loadYouTubeLink } from './youtube.js';
 
 
 const queues = new Map<string, Track[]>();
@@ -231,9 +232,119 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             // Los enlaces y las playlist laos incorporamos en el siguiente paso.
             if (/^https?:\/\//i.test(query)) {
-                await interaction.editReply("Por ahora busca por nombre. Todavia falta agregar los enlaces.",);
+                await interaction.editReply(
+                    '⏳ Leyendo el enlace de YouTube. ' +
+                    'Si es una playlist, revisaré sus primeras 100 entradas...',
+                );
+
+                let result: Awaited<ReturnType<typeof loadYouTubeLink>>;
+
+                try {
+                    result = await loadYouTubeLink(
+                        query,
+                        interaction.user.username,
+                    );
+                } catch (error) {
+                    console.error('Error al leer el enlace de YouTube:', error);
+
+                    await interaction.editReply(
+                         '❌ No pude leer el enlace. Comprobá que sea un video ' +
+                        'o una playlist de YouTube accesible sin iniciar sesión. ' +
+                        'Revisá la terminal para ver el detalle.',
+                    );
+                    return;
+                }
+
+                if (result.tracks.length === 0) {
+                    await interaction.editReply(
+                        'No encontre canciones disponibles para agregar.',
+                    );
+                    return;
+                }
+
+                // La lectura puede tardar: comprobamos de nuevo el canal
+                const currentMember = await interaction.guild.members.fetch(
+                    interaction.user.id,
+                );
+                const voiceChannel = currentMember.voice.channel;
+
+                if(!voiceChannel) {
+                    await interaction.editReply(
+                        'Saliste del canal de voz. Volve a entrar y usa /play de nuevo.',
+                    );
+                    return;
+                }
+
+                let connection = getVoiceConnection(guildId);
+
+                if (
+                    connection &&
+                    connection.joinConfig.channelId !== voiceChannel.id
+                ) {
+                    await interaction.editReply(
+                        'Entrá al mismo canal de voz que el bot para agregar canciones.',
+                    );
+                    return;
+                }
+
+                const createdConnection = !connection;
+
+            if (!connection) {
+                connection = joinVoiceChannel({
+                    channelId: voiceChannel.id,
+                    guildId,
+                    adapterCreator: interaction.guild.voiceAdapterCreator,
+                    selfDeaf: true,
+                });
+            }
+
+            try {
+                await entersState(
+                    connection,
+                    VoiceConnectionStatus.Ready,
+                    20_000,
+                );
+            } catch (error) {
+                console.error('Error al conectar la voz:', error);
+
+                if (
+                    createdConnection &&
+                    connection.state.status !== VoiceConnectionStatus.Destroyed
+                ) {
+                    connection.destroy();
+                }
+
+                await interaction.editReply(
+                    '❌ No pude conectarme al canal. No agregué las canciones.',
+                );
                 return;
             }
+
+            // Recuperamos la cola despues de las esperas para usar la actual
+            const queue = queues.get(guildId) ?? [];
+            queue.push(...result.tracks);
+            queues.set(guildId, queue);
+
+            startPlayback(guildId, queue, connection);
+
+            await interaction.editReply({
+                content: [
+                    `➕ Agrege ${result.tracks.length} canciones al final de la cola.`,
+                    result.isPlaylist
+                        ? 'Se revisaron hasta las primeras 100 entradas de la playlist.'
+                        : '',
+                    result.omitted > 0
+                        ? `Omiti ${result.omitted} entradas sin datos o no disponibles`
+                        : '',
+                    'Usa /queue para ver el orden o /shuffle para mezclar las pendientes.',
+                    '🎛️ Los botones controlan la reproduccion actual del servidor.',
+                ].filter(Boolean).join('\n'),
+                components: [createMusicControls()],
+                allowedMentions: { parse: []},
+            });
+
+            return;
+        }
 
             const results = await ytSearch(query);
             const videos = results.videos.slice(0, 5);
