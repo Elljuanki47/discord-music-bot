@@ -251,3 +251,39 @@ export function stopPlayback(guildId: string): void {
 
     sessions.delete(guildId);
 }
+
+export function togglePause(guildId: string): string {
+    const session = sessions.get(guildId);
+
+    if (!session || session.disposed || !session.active) {
+        return 'No hay ninguna cancion reproduciendose.';
+    }
+
+    const status = session.player.state.status;
+
+    if (status === AudioPlayerStatus.Paused) {
+        return session.player.unpause()
+            ? '▶️ Reproducción reanudada.'
+            : 'No pude reanudar la reproducción.';
+    }
+
+    if (status === AudioPlayerStatus.Playing) {
+        return session.player.pause()
+            ? '⏸️ Reproducción pausada.'
+            : 'No pude pausar la reproducción.';
+    }
+
+    return 'El audio esta cargando o esperando la conexion. Proba en unos segundos.';
+}
+
+export function skipTrack(guildId: string): boolean {
+    const session = sessions.get(guildId);
+
+    if (!session || session.disposed || !session.active) {
+        return false;
+    }
+
+    // Al pasar a Idle, finish() limpa los procesos,
+    // quita la cancion actual y arranca la siguiente
+    return session.player.stop(true);
+}

@@ -1,13 +1,48 @@
 import 'dotenv/config';
 import ytSearch from 'yt-search';
 import type { MessageReaction } from 'discord.js';
-import { Client, Events, GatewayIntentBits } from 'discord.js';
+import {
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    Client,
+    Events,
+    GatewayIntentBits,
+    MessageFlags,
+} from 'discord.js';
 import { entersState, getVoiceConnection, joinVoiceChannel, VoiceConnectionStatus, } from '@discordjs/voice';
-import { startPlayback, stopPlayback} from './music.js';
+import {
+    startPlayback,
+    stopPlayback,
+    togglePause,
+    skipTrack,
+} from './music.js';
 import type { Track } from './music.js';
 
 
 const queues = new Map<string, Track[]>();
+
+function createMusicControls(): ActionRowBuilder<ButtonBuilder> {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId('music:pause')
+            .setLabel('Pausar / Reanudar')
+            .setEmoji('⏯️')
+            .setStyle(ButtonStyle.Primary),
+
+        new ButtonBuilder()
+            .setCustomId('music:stop')
+            .setLabel('Detener')
+            .setEmoji('⏹️')
+            .setStyle(ButtonStyle.Danger),
+
+        new ButtonBuilder()
+            .setCustomId('music:skip')
+            .setLabel('Siguiente')
+            .setEmoji('⏭️')
+            .setStyle(ButtonStyle.Secondary),
+    );
+}
 
 const token = process.env.DISCORD_TOKEN;
 
@@ -29,6 +64,84 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+    if (interaction.isButton()) {
+        const validIds = ['music:pause', 'music:stop', 'music:skip'];
+
+        if (!validIds.includes(interaction.customId)) return;
+
+        try {
+            // La respuesta al clic solo la ve quien presiono el boton
+            await interaction.deferReply({
+                flags: MessageFlags.Ephemeral,
+            });
+
+            const guildId = interaction.guildId;
+            const guild = interaction.guild;
+
+            if (!guildId || !guild) {
+                await interaction.editReply(
+                    "Estos controles solo funcionan en un servidor.",
+                );
+                return;
+            }
+
+            const member = await guild.members.fetch(interaction.user.id);
+            const connection = getVoiceConnection(guildId);
+
+            if (!connection) {
+                await interaction.editReply(
+                    "El bot esta desconectado. Usa /play para comenzar",
+                );
+                return;
+            }
+
+            if (!member.voice.channelId || member.voice.channelId !== connection.joinConfig.channelId) {
+                await interaction.editReply("Entra al mismo canal de voz que el bot para usar los controles",);
+                return;
+            }
+
+            if (interaction.customId === 'music:pause') {
+                await interaction.editReply(togglePause(guildId));
+                return;
+            }
+
+            if (interaction.customId === 'music:stop') {
+                stopPlayback(guildId);
+                queues.delete(guildId);
+
+                await interaction.editReply('⏹️ Reproducción detenida y cola vacía. Sigo en el canal de voz.',);
+                return;
+            }
+
+            if (interaction.customId === 'music:skip') {
+                const skipped = skipTrack(guildId);
+                
+                await interaction.editReply(
+                    skipped
+                       ? '⏭️ Canción saltada. Si hay otra en la cola, empezará a cargar.'
+                        : 'No hay ninguna canción para saltar.',
+                );
+                return;
+            }
+        } catch (error) {
+            console.error('Error en los controles de musica:', error);
+            
+            if(interaction.deferred || interaction.replied) {
+                await interaction.editReply(
+                    '❌ No pude ejecutar ese control. Revisá la terminal.',
+                ).catch(console.error);
+            } else {
+                await interaction.reply({
+                    content: '❌ No pude ejecutar ese control.',
+                    flags: MessageFlags.Ephemeral,
+                }).catch(console.error);
+            }
+        }
+
+        return;
+        
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'ping') {
@@ -256,9 +369,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await interaction.editReply({
                 content:
                     `➕ Agregado a la cola: ${selected.title}\n` +
-                    `${selected.url}\nPosición: **${queue.length}**`,
-                allowedMentions: { parse: [] },
+                    `${selected.url}\nPosición: **${queue.length}**\n\n` +
+                    '🎛️ Estos controles actúan sobre la reproducción actual del servidor.',
+                components: [createMusicControls()],
+                allowedMentions: { parse: []},
             });
+
+            // Quita tanto las reacciones del bot como la seleccion del usuario.
+            await message.reactions.removeAll().catch((error: unknown) => {
+                console.error(
+                    'No pude quitar las reacciones. Revisa el permiso Aministrar mensajes:',
+                    error,
+                );
+            });
+
         } catch (error) {
             console.error('Error en /play:', error);
 
