@@ -509,6 +509,52 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         return;
     }
+
+    if(interaction.commandName === 'skip') {
+        await interaction.deferReply();
+
+        try {
+            const guildId = interaction.guildId;
+            const guild = interaction.guild;
+
+            if (!guildId || !guild) {
+                await interaction.editReply(
+                    'Este comando solo funciona en un servidor.',
+                );
+                return;
+            }
+
+            const member = await guild.members.fetch(interaction.user.id);
+            const connection = getVoiceConnection(guildId);
+
+            if (
+                !connection ||
+                !member.voice.channelId ||
+                member.voice.channelId !== connection.joinConfig.channelId
+            ) {
+                await interaction.editReply(
+                    'Entra al mismo canal de voz que el bot para saltar la cancion.',
+                );
+                return;
+            }
+
+            const skipped = skipTrack(guildId);
+
+            await interaction.editReply(
+                skipped
+                    ? '⏭️ Canción saltada. Si hay otra en la cola, empezará a cargar.'
+                    : 'No hay ninguna canción para saltar.',
+            );
+        } catch (error) {
+            console.error('Error en /skip:', error);
+            
+            await interaction.editReply(
+                '❌ No pude saltar la canción. Revisá la terminal.',
+            ).catch(console.error);
+        }
+
+        return;
+    }
 });
 
 client.login(token);

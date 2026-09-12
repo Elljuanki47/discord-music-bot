@@ -45,6 +45,10 @@ const commands = [
     new SlashCommandBuilder()
         .setName('shuffle')
         .setDescription('Mezcla las canciones pendientes sin interrumpir la actual'),
+
+    new SlashCommandBuilder()
+    .setName('skip')
+    .setDescription('Salta la canción actual y pasa a la siguiente'),
         
 ].map((command) => command.toJSON());
 
