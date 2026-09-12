@@ -3,12 +3,9 @@ import ytSearch from 'yt-search';
 import type { MessageReaction } from 'discord.js';
 import { Client, Events, GatewayIntentBits } from 'discord.js';
 import { entersState, getVoiceConnection, joinVoiceChannel, VoiceConnectionStatus, } from '@discordjs/voice';
+import { startPlayback, stopPlayback} from './music.js';
+import type { Track } from './music.js';
 
-type Track = {
-    query: string;
-    url: string;
-    requestedBy: string;
-};
 
 const queues = new Map<string, Track[]>();
 
@@ -57,16 +54,33 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.commandName === 'leave') {
-        const connection = getVoiceConnection(interaction.guildId!);
+        const guildId = interaction.guildId;
+
+        if (!guildId) {
+            await interaction.reply(
+                'Este comando solo funciona en un servidor.',
+            );
+            return;
+        }
+
+        stopPlayback(guildId);
+        queues.delete(guildId);
+
+        const connection = getVoiceConnection(guildId);
 
         if (!connection) {
-            await interaction.reply('No estoy conectado a ningún canal de voz.');
+            await interaction.reply(
+                "No estoy conectado. La cola quedo vacia",
+            );
             return;
         }
 
         connection.destroy();
 
-        await interaction.reply('👋 Salí del canal de voz.' );
+        await interaction.reply(
+            '👋 Salí del canal de voz y vacié la cola.',
+        );
+        return;
     }
 
     if (interaction.commandName === 'play') {
@@ -236,6 +250,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             });
 
             queues.set(guildId, queue);
+            
+            startPlayback(guildId, queue, connection);
 
             await interaction.editReply({
                 content:
