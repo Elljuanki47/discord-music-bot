@@ -47,8 +47,19 @@ const commands = [
         .setDescription('Mezcla las canciones pendientes sin interrumpir la actual'),
 
     new SlashCommandBuilder()
-    .setName('skip')
-    .setDescription('Salta la canción actual y pasa a la siguiente'),
+        .setName('skip')
+        .setDescription('Salta la canción actual y pasa a la siguiente'),
+
+    new SlashCommandBuilder()
+        .setName('remove')
+        .setDescription('Quita una cancion pendiente de la cola')
+        .addIntegerOption((option) => 
+            option
+                .setName('posicion')
+                .setDescription('Numero de la cancion pendiente que muestra /queue')
+                .setMinValue(1)
+                .setRequired(true),
+        ),
         
 ].map((command) => command.toJSON());
 

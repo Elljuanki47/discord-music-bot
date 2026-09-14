@@ -391,3 +391,35 @@ export function shuffleQueue(guildId: string): number {
 
     return count;
 }
+
+export function removeQueuedTrack(
+    guildId: string,
+    position: number,
+): Track | undefined {
+    const session = sessions.get(guildId);
+
+    if (
+        !session ||
+        session.disposed ||
+        !Number.isInteger(position) ||
+        position < 1
+    ) {
+        return undefined;
+    }
+
+    // La posicion 0 del array contiene la cancion actual si esta activo
+    const pendingStart = session.active ? 1 : 0;
+    const index = pendingStart + position - 1;
+
+    if (index >= session.queue.length) {
+        return undefined;
+    }
+
+    const [removed] = session.queue.splice(index, 1);
+
+    if (removed) {
+        notifyPlaybackChange(guildId);
+    }
+
+    return removed;
+}

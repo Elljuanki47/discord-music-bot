@@ -19,6 +19,7 @@ import {
     skipTrack,
     getQueueSnapshot,
     shuffleQueue,
+    removeQueuedTrack,
 } from './music.js';
 import type { Track } from './music.js';
 import { loadYouTubeLink } from './youtube.js';
@@ -690,6 +691,64 @@ client.on(Events.InteractionCreate, async (interaction) => {
             
             await interaction.editReply(
                 '❌ No pude saltar la canción. Revisá la terminal.',
+            ).catch(console.error);
+        }
+
+        return;
+    }
+
+    if (interaction.commandName === 'remove') {
+        await interaction.deferReply();
+
+        try {
+            const guildId = interaction.guildId;
+            const guild = interaction.guild;
+
+            if (!guildId || !guild) {
+                await interaction.editReply(
+                    'Este comando solo funciona en un servidor',
+                );
+                return;
+            }
+
+            const member = await guild.members.fetch(interaction.user.id);
+            const connection = getVoiceConnection(guildId);
+
+            if (
+                !connection ||
+                !member.voice.channelId ||
+                member.voice.channelId !== connection.joinConfig.channelId
+            ) {
+                await interaction.editReply(
+                    'Entra al mismo canal de voz que el bot para quitar canciones',
+                );
+                return;
+            }
+
+            const position = interaction.options.getInteger('posicion', true);
+            const removed = removeQueuedTrack(guildId, position);
+
+            if (!removed) {
+                await interaction.editReply(
+                    'No hay una cancion pendiente en esa posicion. ' +
+                    'Usa /queue para consultar la lista actual.',
+                );
+                return;
+            }
+
+            const title = escapeMarkdown(
+                removed.query.replace(/[\r\n]/g, ' ').slice(0, 180),
+            );
+
+            await interaction.editReply({
+                content: `🗑️ Quité de la cola: **${title}**`,
+                allowedMentions: { parse: [] },
+            });
+        } catch (error) {
+            console.error('Error en /remove:', error);
+
+            await interaction.editReply(
+                '❌ No pude quitar la canción. Revisá los registros del bot.',
             ).catch(console.error);
         }
 
