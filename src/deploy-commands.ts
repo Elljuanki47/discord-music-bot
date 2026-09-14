@@ -5,8 +5,8 @@ const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
 
-if (!token || !clientId || !guildId) {
-    throw new Error('Faltan datos en el archivo .env');
+if (!token || !clientId) {
+    throw new Error('Faltan DISCORD_TOKEN o CLIENT_ID en el archivo .env');
 }
 
 const commands = [
@@ -54,11 +54,22 @@ const commands = [
 
 const rest = new REST({ version: '10' }).setToken(token);
 
-console.log('Registrando el comando /ping...');
+console.log('Registrando comandos globales...');
 
 await rest.put(
-    Routes.applicationGuildCommands(clientId, guildId),
+    Routes.applicationCommands(clientId),
     { body: commands },
 );
 
-console.log('✅ Comando /ping registrado.');
+console.log('✅ Comandos globales registrado.');
+
+// Retiramos las versiones locales del servidor de pruebas
+// despues de registrar correctamente las globales
+if (guildId) {
+    await rest.put(
+        Routes.applicationGuildCommands(clientId, guildId),
+        { body: [] },
+    );
+
+    console.log('✅ Registro anterior del servidor de pruebas eliminado.');
+}
