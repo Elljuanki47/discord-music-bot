@@ -423,3 +423,13 @@ export function removeQueuedTrack(
 
     return removed;
 }
+
+export function hasQueuedMusic(guildId: string): boolean {
+    const session = sessions.get(guildId);
+
+    if (!session || session.disposed) {
+        return false;
+    }
+
+    return session.active || session.queue.length > 0;
+}

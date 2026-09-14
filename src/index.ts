@@ -11,7 +11,7 @@ import {
     MessageFlags,
     escapeMarkdown,
 } from 'discord.js';
-import { entersState, getVoiceConnection, joinVoiceChannel, VoiceConnectionStatus, } from '@discordjs/voice';
+import { entersState, getVoiceConnection, getVoiceConnections, joinVoiceChannel, VoiceConnectionStatus, } from '@discordjs/voice';
 import {
     startPlayback,
     stopPlayback,
@@ -20,6 +20,7 @@ import {
     getQueueSnapshot,
     shuffleQueue,
     removeQueuedTrack,
+    hasQueuedMusic,
 } from './music.js';
 import type { Track } from './music.js';
 import { loadYouTubeLink } from './youtube.js';
@@ -30,7 +31,101 @@ import {
 } from './now-playing.js';
 
 
+
 const queues = new Map<string, Track[]>();
+
+type InactivityState = {
+    channelId: string;
+    emptySince: number | undefined;
+    idleSince: number | undefined;
+};
+
+const inactivityStates = new Map<string, InactivityState>();
+
+const EMPTY_CHANNEL_TIMEOUT = 60_000;
+const NO_MUSIC_TIMEOUT = 5 * 60_000;
+
+function checkVoiceInactivity(): void {
+    const connections = getVoiceConnections();
+    const now = Date.now();
+
+    // Quitamos los registros de conexiones que ya no existen.
+    for (const guildId of inactivityStates.keys()) {
+        if (!connections.has(guildId)) {
+            inactivityStates.delete(guildId);
+        }
+    }
+
+    for (const [guildId, connection] of connections) {
+        if (connection.state.status !== VoiceConnectionStatus.Ready) {
+            inactivityStates.delete(guildId);
+            continue;
+        }
+
+        const channelId = connection.joinConfig.channelId;
+
+        if (!channelId) continue;
+
+        const guild = client.guilds.cache.get(guildId);
+        const channel = guild?.channels.cache.get(channelId);
+
+        // Si no odemos comprobar quien esta conectado, no decidimos salir
+        if (!channel || !channel.isVoiceBased()) {
+            inactivityStates.delete(guildId);
+            continue;
+        }
+
+        let state = inactivityStates.get(guildId);
+
+        if (!state || state.channelId !== channelId) {
+            state = {
+                channelId,
+                emptySince: undefined,
+                idleSince: undefined,
+            };
+
+            inactivityStates.set(guildId, state);
+        }
+
+        const hasPeople = channel.members.some(
+            (member) => !member.user.bot,
+        );
+
+        if (hasPeople) {
+            state.emptySince = undefined;
+        } else {
+            state.emptySince ??= now;
+        }
+
+        if (hasQueuedMusic(guildId)) {
+            state.idleSince = undefined;
+        } else {
+            state.idleSince ??= now;
+        }
+
+        const emptyTooLong =
+            state.emptySince !== undefined &&
+            now - state.emptySince >= EMPTY_CHANNEL_TIMEOUT;
+
+        const idleTooLong =
+            state.idleSince !== undefined &&
+            now - state.idleSince >= NO_MUSIC_TIMEOUT;
+
+        if (!emptyTooLong && !idleTooLong) continue;
+
+        stopPlayback(guildId);
+        queues.delete(guildId);
+        inactivityStates.delete(guildId);
+        connection.destroy();
+
+        console.log(
+            `NO VEMO NEMO porque: ` +
+            (emptyTooLong
+                ? 'Cakin es un gato y no se conecto.'
+                : 'Gagaciano entro muteado... OTRA VEZ'),
+        );
+    }
+}
 
 function createMusicControls(): ActionRowBuilder<ButtonBuilder> {
     return new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -71,6 +166,31 @@ const client = new Client ({
 
 client.once(Events.ClientReady, (readyClient) => {
     console.log(`✅ Conectado como ${readyClient.user.tag}`);
+
+    const inactivityTimer = setInterval(() => {
+        try {
+            checkVoiceInactivity();
+        } catch (error) {
+            console.error('Error al revisar la inactividad:', error);
+        }
+    }, 10_000);
+
+    inactivityTimer.unref();
+});
+
+client.on(Events.VoiceStateUpdate, (_previous, current) => {
+    const guildId = current.guild.id;
+    const state = inactivityStates.get(guildId);
+
+    if (!state) return;
+
+    if (
+        current.channelId === state.channelId &&
+        current.member &&
+        !current.member.user.bot
+    ) {
+        state.emptySince = undefined;
+    }
 });
 
 setupNowPlaying(client);
@@ -343,6 +463,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
             startPlayback(guildId, queue, connection);
 
+            const inactivity = inactivityStates.get(guildId);
+
+            if (inactivity) {
+                inactivity.idleSince = undefined;
+            }
+
             if (interaction.channelId) {
                 watchNowPlaying(guildId, interaction.channelId);
             }
@@ -505,6 +631,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
             queues.set(guildId, queue);
             
             startPlayback(guildId, queue, connection);
+
+            const inactivity = inactivityStates.get(guildId);
+
+            if (inactivity) {
+                inactivity.idleSince = undefined;
+            }
+
 
             if (interaction.channelId) {
                 watchNowPlaying(guildId, interaction.channelId);
