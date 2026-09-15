@@ -29,7 +29,11 @@ import {
     watchNowPlaying,
     isNowPlayingMessage,
 } from './now-playing.js';
-import { getSpotifyTrack } from './spotify.js';
+import { 
+    getSpotifyTrack,
+    loadSpotifyPlaylist,
+} from './spotify.js';
+
 
 
 
@@ -367,6 +371,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return;
             }
 
+            let isSpotifyPlaylist = false;
+
             if (/^https?:\/\//i.test(query)) {
                 const url = new URL(query);
 
@@ -375,14 +381,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
                         '⏳ Leyendo la canción de Spotify...',
                     );
                     
-                    
+
                     try {
-                        const track = await getSpotifyTrack(query);
-                    
-                        query = track.title + ' ' + track.artists.join(' ');
+                        isSpotifyPlaylist = /^\/(?:intl-[a-zA-Z-]+\/)?playlist\/[A-Za-z0-9]{22}\/?$/.test(
+                            url.pathname,
+                        );
+
+                        if (!isSpotifyPlaylist) {
+                            const track = await getSpotifyTrack(query);
+
+                            query = track.title + ' ' + track.artists.join(' ');
+                        }
                     } catch (error) {
                         console.error('Error al leer Spotify:', error);
-                    
+
                         await interaction.editReply({
                             content:
                                 error instanceof Error
@@ -390,7 +402,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                                     : 'No pude leer la cancion de spotify.',
                             allowedMentions: { parse: [] },
                         });
-                    
+
                         return;
                     }
                 }
@@ -399,19 +411,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
             // Los enlaces y las playlist laos incorporamos en el siguiente paso.
             if (/^https?:\/\//i.test(query)) {
                 await interaction.editReply(
-                    '⏳ Leyendo el enlace de YouTube. ' +
-                    'Si es una playlist, revisaré sus primeras 100 entradas...',
+                    isSpotifyPlaylist
+                        ? '⏳ Leyendo la playlist de Spotify y buscando hasta 100 canciones en YouTube. Puede tardar varios minutos...'
+                        : '⏳ Leyendo el enlace de YouTube. Si es una playlist, revisaré sus primeras 100 entradas...',
                 );
 
-                let result: Awaited<ReturnType<typeof loadYouTubeLink>>;
+                let result: {
+                    tracks: Track[];
+                    omitted: number;
+                    isPlaylist: boolean;
+                    limited?: number;
+                };
 
                 try {
-                    result = await loadYouTubeLink(
-                        query,
-                        interaction.user.username,
-                    );
+                    result = isSpotifyPlaylist
+                        ? await loadSpotifyPlaylist(
+                            query,
+                            interaction.user.username,
+                        )
+                        : await loadYouTubeLink(
+                            query,
+                            interaction.user.username,
+                        );
                 } catch (error) {
-                    console.error('Error al leer el enlace de YouTube:', error);
+                    await interaction.editReply(
+                        '❌ No pude procesar el enlace. Revisá la terminal para ver el detalle.',
+                    );
 
                     await interaction.editReply(
                          '❌ No pude leer el enlace. Comprobá que sea un video ' +
@@ -507,13 +532,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 content: [
                     `➕ Agrege ${result.tracks.length} canciones al final de la cola.`,
                     result.isPlaylist
-                        ? 'Se revisaron hasta las primeras 100 entradas de la playlist.'
+                        ? isSpotifyPlaylist
+                            ? 'Se buscaron automaticamente hasta 100 canciones en youtube.'
+                            : 'Se revisaron  hasta las primeras 100 entradas de la playlist'
+                        : '',
+                    (result.limited ?? 0) > 0
+                        ? `Quedaron ${result.omitted} canciones fuera del limite de 100`
                         : '',
                     result.omitted > 0
-                        ? `Omiti ${result.omitted} entradas sin datos o no disponibles`
+                        ? `Omiti ${result.omitted} entradas sin datos o sin un resultado de busqueda`
                         : '',
                     'Usa /queue para ver el orden o /shuffle para mezclar las pendientes.',
-                    '🎛️ Los botones controlan la reproduccion actual del servidor.',
+                    '🎛️ los botones controlan la reproduccion actual del servidor.',
                 ].filter(Boolean).join('\n'),
                 components: [],
                 allowedMentions: { parse: []},
