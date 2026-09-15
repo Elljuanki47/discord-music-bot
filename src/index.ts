@@ -29,6 +29,7 @@ import {
     watchNowPlaying,
     isNowPlayingMessage,
 } from './now-playing.js';
+import { getSpotifyTrack } from './spotify.js';
 
 
 
@@ -359,11 +360,40 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return;
             }
 
-            const query = interaction.options.getString('busqueda', true).trim();
+            let query = interaction.options.getString('busqueda', true).trim();
 
             if (!query) {
                 await interaction.editReply("Escribi el nombnre de una cancion.");
                 return;
+            }
+
+            if (/^https?:\/\//i.test(query)) {
+                const url = new URL(query);
+
+                if (url.hostname === 'open.spotify.com') {
+                    await interaction.editReply(
+                        '⏳ Leyendo la canción de Spotify...',
+                    );
+                    
+                    
+                    try {
+                        const track = await getSpotifyTrack(query);
+                    
+                        query = track.title + ' ' + track.artists.join(' ');
+                    } catch (error) {
+                        console.error('Error al leer Spotify:', error);
+                    
+                        await interaction.editReply({
+                            content:
+                                error instanceof Error
+                                    ? error.message
+                                    : 'No pude leer la cancion de spotify.',
+                            allowedMentions: { parse: [] },
+                        });
+                    
+                        return;
+                    }
+                }
             }
 
             // Los enlaces y las playlist laos incorporamos en el siguiente paso.
